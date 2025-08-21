@@ -1,43 +1,421 @@
-const btnStopPreview = document.createElement('button');
-btnStopPreview.textContent = "⏹️ Parar";
-btnStopPreview.disabled = true;
-document.querySelector(".card .row").appendChild(btnStopPreview);
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Pitch Recorder (Web) — Single‑File (PCM Recorder)</title>
+  <style>
+    :root { --bg:#0b0f14; --fg:#e7edf3; --muted:#a9b3bd; --accent:#6ee7ff; --card:#121822; --btn:#1e2633; }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    .wrap{max-width:960px;margin:32px auto;padding:0 16px}
+    .title{font-size:28px;font-weight:700;margin-bottom:8px}
+    .sub{color:var(--muted);margin-bottom:20px}
+    .card{background:var(--card);border:1px solid #1b2430;border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,.25)}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    button{background:var(--btn);color:var(--fg);border:1px solid #2a3342;border-radius:12px;padding:10px 14px;font-weight:600;cursor:pointer}
+    button[disabled]{opacity:.4;cursor:not-allowed}
+    button.primary{background:linear-gradient(180deg,#1b97ff,#1a6dff);border:none}
+    .slider{width:240px}
+    .label{color:var(--muted)}
+    .meter{height:8px;background:#0f1722;border-radius:999px;overflow:hidden}
+    .meter>div{height:100%;background:linear-gradient(90deg,#22d3ee,#3b82f6);width:0%}
+    audio{width:100%}
+    canvas{width:100%;height:64px;background:#0f1722;border-radius:8px}
+    .tag{font-size:12px;background:#0f1722;border:1px solid #243041;border-radius:999px;padding:4px 8px;color:#a9b3bd}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">Mini Pitch Recorder (Web)</div>
+    <div class="sub">Grave, ajuste a <b>tonalidade (pitch)</b> e ouça. 
+      <span class="tag">Prévia rápida: muda tom + velocidade</span> 
+      <span class="tag">Renderização granular: preserva tempo (single‑file)</span>
+    </div>
 
-// Função genérica de parar áudio
-function stopPlayback() {
-  if (sourceNode) {
-    try { sourceNode.stop(); } catch(_) {}
-    sourceNode = null;
-    setStatus("Parado");
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <button id="btnRec" class="primary">● Gravar</button>
+          <button id="btnStop" disabled>■ Parar</button>
+          <button id="btnPlay" disabled>▶︎ Ouvir Original</button>
+          <button id="btnStopOriginal" disabled>⏹️ Parar Original</button>
+          <button id="btnDownload" disabled>⬇️ Baixar WAV</button>
+        </div>
+        <div class="label" id="lblStatus">Pronto</div>
+      </div>
+      <div style="margin-top:12px" class="row">
+        <input type="file" id="fileIn" accept="audio/*" />
+        <span class="label">ou arraste um arquivo aqui</span>
+      </div>
+      <div style="margin-top:12px">
+        <canvas id="wave"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <label class="label">Semitons: <span id="lblSemitons">0</span></label>
+        <input id="rangeSemitons" type="range" min="-12" max="12" step="1" value="0" class="slider" />
+        <button id="btnPreview" disabled>🎧 Pré-visualizar (rápido)</button>
+        <button id="btnStopPreview" disabled>⏹️ Parar Prévia</button>
+        <button id="btnRenderHQ" disabled>⭐ Renderizar (granular)</button>
+        <button id="btnPlayProcessed" disabled>▶︎ Ouvir Processado</button>
+        <button id="btnDownloadProcessed" disabled>⬇️ Baixar Processado</button>
+      </div>
+      <div style="margin-top:10px" class="meter"><div id="meterBar"></div></div>
+      <audio id="audioOut" controls style="margin-top:12px;display:none"></audio>
+      <div class="label" style="margin-top:8px">A renderização granular é 100% local e mantém o tempo. Pode levar alguns segundos em arquivos longos.</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px" class="label">
+        Dicas:
+        <ul>
+          <li>Se a gravação pedir permissão, aceite o uso do microfone.</li>
+          <li>Se abrir como <code>file:///</code>, alguns navegadores bloqueiam. Prefira <code>http(s)</code> local (ex.: <code>npx serve</code>).</li>
+          <li>Funciona melhor com WAV 44.1kHz mono/estéreo. Arquivos longos podem demorar.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // ===== UI =====
+  const btnRec = document.getElementById('btnRec');
+  const btnStop = document.getElementById('btnStop');
+  const btnPlay = document.getElementById('btnPlay');
+  const btnStopOriginal = document.getElementById('btnStopOriginal');
+  const btnDownload = document.getElementById('btnDownload');
+  const fileIn = document.getElementById('fileIn');
+  const wave = document.getElementById('wave');
+  const lblStatus = document.getElementById('lblStatus');
+  const lblSemitons = document.getElementById('lblSemitons');
+  const rangeSemitons = document.getElementById('rangeSemitons');
+  const btnPreview = document.getElementById('btnPreview');
+  const btnStopPreview = document.getElementById('btnStopPreview');
+  const btnRenderHQ = document.getElementById('btnRenderHQ');
+  const btnPlayProcessed = document.getElementById('btnPlayProcessed');
+  const btnDownloadProcessed = document.getElementById('btnDownloadProcessed');
+  const meterBar = document.getElementById('meterBar');
+
+  // ===== Estado =====
+  let audioCtx = null;               // AudioContext compartilhado
+  let audioBufferOriginal = null;    // AudioBuffer gravado/aberto
+  let processedBuffer = null;        // AudioBuffer processado
+  let originalSource = null, previewSource = null, processedSource = null;
+
+  // PCM Recorder (AudioWorklet)
+  let workletNode = null, mediaStream = null, mediaSource = null;
+  let recording = false, pcmChunks = [], pcmLength = 0, recSampleRate = 44100;
+
+  function setStatus(t){ lblStatus.textContent = t; }
+  function enableProcessing(enabled){
+    btnPlay.disabled = !enabled;
+    btnDownload.disabled = !enabled;
+    btnPreview.disabled = !enabled;
+    btnRenderHQ.disabled = !enabled;
   }
-  btnStopPreview.disabled = true;
-}
+  function stopNode(n){ try{ n && n.stop && n.stop(); }catch(_){} }
 
-// Ajustar o play para habilitar o stop
-btnPlay.addEventListener('click', () => {
-  if (!audioBufferOriginal) return;
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  stopPlayback();
-  sourceNode = audioCtx.createBufferSource();
-  sourceNode.buffer = audioBufferOriginal;
-  sourceNode.connect(audioCtx.destination);
-  sourceNode.start();
-  btnStopPreview.disabled = false;
-});
+  function drawWaveform(buffer){
+    const ctx = wave.getContext('2d');
+    const w = wave.width = wave.clientWidth; const h = wave.height = wave.clientHeight;
+    ctx.clearRect(0,0,w,h); ctx.fillStyle = '#0f1722'; ctx.fillRect(0,0,w,h); ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 1;
+    const ch = buffer.numberOfChannels ? buffer.getChannelData(0) : buffer;
+    const step = Math.max(1, Math.floor(ch.length / w));
+    const amp = h / 2;
+    ctx.beginPath();
+    for (let i=0; i<w; i++){
+      let min=1.0, max=-1.0;
+      for (let j=0; j<step; j++){
+        const v = ch[(i*step)+j] || 0;
+        if (v < min) min = v; if (v > max) max = v;
+      }
+      ctx.moveTo(i, (1+min)*amp);
+      ctx.lineTo(i, (1+max)*amp);
+    }
+    ctx.stroke();
+  }
 
-btnPreview.addEventListener('click', () => {
-  if (!audioBufferOriginal) return;
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  stopPlayback();
-  const semitons = parseInt(rangeSemitons.value, 10);
-  const rate = Math.pow(2, semitons / 12);
-  sourceNode = audioCtx.createBufferSource();
-  sourceNode.buffer = audioBufferOriginal;
-  sourceNode.playbackRate.value = rate;
-  sourceNode.connect(audioCtx.destination);
-  sourceNode.start();
-  setStatus(`Prévia rápida: ${semitons} st`);
-  btnStopPreview.disabled = false;
-});
+  function exportWavFromBuffer(buffer){
+    const numOfChan = buffer.numberOfChannels;
+    const length = buffer.length * numOfChan * 2 + 44;
+    const ab = new ArrayBuffer(length);
+    const view = new DataView(ab);
+    const channels = [];
+    let i, sample, offset = 0, pos = 0;
 
-btnStopPreview.addEventListener('click', stopPlayback);
+    function setUint16(data){ view.setUint16(pos, data, true); pos += 2; }
+    function setUint32(data){ view.setUint32(pos, data, true); pos += 4; }
+
+    setUint32(0x46464952); // RIFF
+    setUint32(length - 8);
+    setUint32(0x45564157); // WAVE
+
+    setUint32(0x20746d66); // fmt 
+    setUint32(16);
+    setUint16(1);
+    setUint16(numOfChan);
+    setUint32(buffer.sampleRate);
+    setUint32(buffer.sampleRate * 2 * numOfChan);
+    setUint16(numOfChan * 2);
+    setUint16(16);
+
+    setUint32(0x61746164); // data
+    setUint32(length - pos - 4);
+
+    for (i=0; i<numOfChan; i++) channels.push(buffer.getChannelData(i));
+    while (pos < length){
+      for (i=0; i<numOfChan; i++){
+        sample = Math.max(-1, Math.min(1, channels[i][offset] || 0));
+        sample = (sample*32767) | 0;
+        view.setInt16(pos, sample, true); pos += 2;
+      }
+      offset++;
+    }
+    return new Blob([ab], {type:'audio/wav'});
+  }
+
+  // ===== Recorder via AudioWorklet (sem MediaRecorder/decoders) =====
+  const WORKLET_CODE = `
+    class PCMRecorder extends AudioWorkletProcessor {
+      process(inputs, outputs){
+        const input = inputs[0];
+        if (input && input[0] && input[0].length){
+          // envia cópia do canal 0 (mono) para o main thread
+          const ch = input[0];
+          const out = new Float32Array(ch.length);
+          out.set(ch);
+          this.port.postMessage(out, [out.buffer]);
+        }
+        return true;
+      }
+    }
+    registerProcessor('pcm-recorder', PCMRecorder);
+  `;
+
+  async function startRecording(){
+    try{
+      setStatus('Solicitando microfone…');
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+      pcmChunks = []; pcmLength = 0; recording = true;
+
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      recSampleRate = audioCtx.sampleRate;
+
+      // Carrega worklet inline
+      if (!audioCtx.audioWorklet){ throw new Error('AudioWorklet não suportado neste navegador.'); }
+      const blob = new Blob([WORKLET_CODE], {type: 'application/javascript'});
+      const url = URL.createObjectURL(blob);
+      await audioCtx.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+
+      mediaSource = audioCtx.createMediaStreamSource(mediaStream);
+      workletNode = new AudioWorkletNode(audioCtx, 'pcm-recorder');
+      workletNode.port.onmessage = (e) => {
+        if (!recording) return;
+        const chunk = e.data; // Float32Array mono
+        pcmChunks.push(chunk);
+        pcmLength += chunk.length;
+      };
+
+      mediaSource.connect(workletNode);
+      workletNode.connect(audioCtx.destination); // para monitorar ao vivo (pode remover)
+
+      btnRec.disabled = true; btnStop.disabled = false; setStatus('Gravando…');
+    } catch (err){
+      console.error(err);
+      alert('Falha ao iniciar gravação: '+ err.message + '\nDica: use Chrome/Edge e sirva via http(s).');
+      stopRecording();
+    }
+  }
+
+  function stopRecording(){
+    recording = false;
+    try{ workletNode && workletNode.disconnect(); }catch(_){ }
+    try{ mediaSource && mediaSource.disconnect(); }catch(_){ }
+    try{ mediaStream && mediaStream.getTracks().forEach(t=>t.stop()); }catch(_){ }
+
+    // monta AudioBuffer mono a partir dos chunks
+    if (pcmLength > 0){
+      const mono = new Float32Array(pcmLength);
+      let offset = 0; for (const c of pcmChunks){ mono.set(c, offset); offset += c.length; }
+      audioBufferOriginal = (audioCtx || new AudioContext()).createBuffer(1, pcmLength, recSampleRate);
+      audioBufferOriginal.getChannelData(0).set(mono);
+      drawWaveform(audioBufferOriginal);
+      setStatus(`Gravação pronta (${(pcmLength/recSampleRate).toFixed(2)}s @ ${recSampleRate}Hz)`);
+      enableProcessing(true);
+      btnPlayProcessed.disabled = true; btnDownloadProcessed.disabled = true;
+    } else {
+      setStatus('Nenhum áudio capturado');
+    }
+
+    btnRec.disabled = false; btnStop.disabled = true;
+  }
+
+  // Botões de gravação
+  btnRec.addEventListener('click', startRecording);
+  btnStop.addEventListener('click', stopRecording);
+
+  // Ouvir Original
+  btnPlay.addEventListener('click', () => {
+    if (!audioBufferOriginal) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    stopNode(originalSource);
+    originalSource = audioCtx.createBufferSource();
+    originalSource.buffer = audioBufferOriginal;
+    originalSource.connect(audioCtx.destination);
+    originalSource.start();
+    btnStopOriginal.disabled = false;
+  });
+  btnStopOriginal.addEventListener('click', () => { stopNode(originalSource); btnStopOriginal.disabled = true; setStatus('Original parado'); });
+
+  // Baixar WAV do original
+  btnDownload.addEventListener('click', () => {
+    if (!audioBufferOriginal) return;
+    const blob = exportWavFromBuffer(audioBufferOriginal);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'original.wav'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+  });
+
+  // Carregar arquivo externo
+  async function decodeToBuffer(arrayBuffer){
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+  }
+  fileIn.addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    setStatus('Carregando arquivo…');
+    try{
+      const ab = await file.arrayBuffer();
+      audioBufferOriginal = await decodeToBuffer(ab);
+      drawWaveform(audioBufferOriginal);
+      setStatus('Arquivo carregado');
+      enableProcessing(true);
+      btnPlayProcessed.disabled = true; btnDownloadProcessed.disabled = true;
+    } catch(err){
+      console.error(err); alert('Falha ao abrir este áudio: '+err.message);
+    }
+  });
+
+  // Drag & drop de arquivo
+  document.addEventListener('dragover', e=>{ e.preventDefault(); });
+  document.addEventListener('drop', async e=>{
+    e.preventDefault(); if (!e.dataTransfer.files.length) return;
+    const file = e.dataTransfer.files[0];
+    try{
+      const ab = await file.arrayBuffer();
+      audioBufferOriginal = await decodeToBuffer(ab);
+      drawWaveform(audioBufferOriginal);
+      setStatus('Arquivo carregado'); enableProcessing(true);
+    }catch(err){ console.error(err); alert('Falha ao abrir este áudio: '+err.message); }
+  });
+
+  // Slider
+  rangeSemitons.addEventListener('input', () => { lblSemitons.textContent = rangeSemitons.value; });
+
+  // Pré-visualização rápida (pitch + velocidade)
+  btnPreview.addEventListener('click', () => {
+    if (!audioBufferOriginal) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    stopNode(previewSource);
+    const semitons = parseInt(rangeSemitons.value, 10);
+    const rate = Math.pow(2, semitons / 12);
+    previewSource = audioCtx.createBufferSource();
+    previewSource.buffer = audioBufferOriginal; previewSource.playbackRate.value = rate;
+    previewSource.connect(audioCtx.destination); previewSource.start();
+    setStatus(`Prévia rápida: ${semitons} st`); btnStopPreview.disabled = true; // autostop em tempo fixo não implementado
+  });
+  btnStopPreview.addEventListener('click', () => { stopNode(previewSource); btnStopPreview.disabled = true; setStatus('Prévia parada'); });
+
+  // ===== Renderização (pitch sem mudar tempo) =====
+  function hann(n, N){ return 0.5 * (1 - Math.cos(2*Math.PI*n/(N-1))); }
+
+  // Time-stretch granular (ajusta duração sem mudar tom)
+  function timeStretchGranular(channelData, factor){
+    const inBuf = channelData; const N = inBuf.length;
+    const outLen = Math.max(1, Math.floor(N * factor));
+    const sr = (audioCtx ? audioCtx.sampleRate : 44100);
+    const grainMs = 50, overlap = 0.5;
+    const grainSize = Math.max(256, Math.floor(sr * grainMs/1000));
+    const hopIn  = Math.floor(grainSize * (1-overlap));
+    const hopOut = Math.max(1, Math.floor(hopIn * factor));
+
+    const out = new Float32Array(outLen + grainSize);
+    const window = new Float32Array(grainSize);
+    for (let i=0;i<grainSize;i++) window[i] = hann(i, grainSize);
+
+    let inPos = 0, outPos = 0;
+    while (outPos + grainSize < out.length && inPos + grainSize < N){
+      for (let n=0;n<grainSize;n++){
+        const a = inBuf[inPos + n] || 0; out[outPos + n] += a * window[n];
+      }
+      inPos += hopIn; outPos += hopOut;
+    }
+
+    let maxAbs = 0; for (let i=0;i<outLen;i++) maxAbs = Math.max(maxAbs, Math.abs(out[i]));
+    if (maxAbs > 1e-3){ const g = 1/Math.max(1, maxAbs*1.05); for (let i=0;i<outLen;i++) out[i] *= g; }
+    return out.subarray(0, outLen);
+  }
+
+  async function resampleWithPitch(buffer, pitchRatio){
+    const numCh = buffer.numberOfChannels; const sr = buffer.sampleRate;
+    const inLen = buffer.length; const outLen = Math.max(1, Math.floor(inLen / pitchRatio));
+    const off = new OfflineAudioContext(numCh, outLen, sr);
+    const src = off.createBufferSource();
+    src.buffer = buffer; src.playbackRate.value = pitchRatio; src.connect(off.destination); src.start();
+    const rendered = await off.startRendering();
+    return rendered;
+  }
+
+  btnRenderHQ.addEventListener('click', async () => {
+    if (!audioBufferOriginal) return;
+    setStatus('Renderizando (granular)…'); btnRenderHQ.disabled = true; meterBar.style.width = '0%';
+
+    const numCh = audioBufferOriginal.numberOfChannels;
+    const sr = audioBufferOriginal.sampleRate;
+    const semitons = parseInt(rangeSemitons.value, 10);
+    const pitchRatio = Math.pow(2, semitons/12);
+
+    // Passo 1: muda pitch + tempo
+    const pitched = await resampleWithPitch(audioBufferOriginal, pitchRatio);
+
+    // Passo 2: corrige tempo para bater com o original
+    const targetLen = audioBufferOriginal.length;
+    const factor = targetLen / pitched.length; // alonga ou encurta
+
+    const processed = [];
+    for (let ch=0; ch<numCh; ch++){
+      const chData = pitched.getChannelData(ch);
+      const stretched = timeStretchGranular(chData, factor);
+      processed.push(stretched);
+      meterBar.style.width = Math.min(100, Math.round(((ch+1)/numCh)*100)) + '%';
+    }
+
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    processedBuffer = audioCtx.createBuffer(numCh, targetLen, sr);
+    processed.forEach((arr, idx) => { processedBuffer.getChannelData(idx).set(arr); });
+
+    meterBar.style.width = '100%'; setStatus('Renderização concluída');
+    btnPlayProcessed.disabled = false; btnDownloadProcessed.disabled = false; btnRenderHQ.disabled = false;
+    drawWaveform(processedBuffer);
+  });
+
+  // Ouvir processado
+  btnPlayProcessed.addEventListener('click', () => {
+    if (!processedBuffer) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    stopNode(processedSource);
+    processedSource = audioCtx.createBufferSource();
+    processedSource.buffer = processedBuffer; processedSource.connect(audioCtx.destination); processedSource.start();
+  });
+
+  btnDownloadProcessed.addEventListener('click', () => {
+    if (!processedBuffer) return;
+    const blob = exportWavFromBuffer(processedBuffer);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'processado.wav'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+  });
+})();
+</script>
+</body>
+</html>
