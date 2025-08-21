@@ -1,0 +1,43 @@
+const btnStopPreview = document.createElement('button');
+btnStopPreview.textContent = "⏹️ Parar";
+btnStopPreview.disabled = true;
+document.querySelector(".card .row").appendChild(btnStopPreview);
+
+// Função genérica de parar áudio
+function stopPlayback() {
+  if (sourceNode) {
+    try { sourceNode.stop(); } catch(_) {}
+    sourceNode = null;
+    setStatus("Parado");
+  }
+  btnStopPreview.disabled = true;
+}
+
+// Ajustar o play para habilitar o stop
+btnPlay.addEventListener('click', () => {
+  if (!audioBufferOriginal) return;
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  stopPlayback();
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = audioBufferOriginal;
+  sourceNode.connect(audioCtx.destination);
+  sourceNode.start();
+  btnStopPreview.disabled = false;
+});
+
+btnPreview.addEventListener('click', () => {
+  if (!audioBufferOriginal) return;
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  stopPlayback();
+  const semitons = parseInt(rangeSemitons.value, 10);
+  const rate = Math.pow(2, semitons / 12);
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = audioBufferOriginal;
+  sourceNode.playbackRate.value = rate;
+  sourceNode.connect(audioCtx.destination);
+  sourceNode.start();
+  setStatus(`Prévia rápida: ${semitons} st`);
+  btnStopPreview.disabled = false;
+});
+
+btnStopPreview.addEventListener('click', stopPlayback);
