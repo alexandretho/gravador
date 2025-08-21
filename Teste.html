@@ -1,0 +1,447 @@
+<!DOCTYPE html><html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Pitch Recorder (Web) — Aula de Canto (Qualidade Melhorada)</title>
+  <style>
+    :root { --bg:#0b0f14; --fg:#e7edf3; --muted:#a9b3bd; --accent:#6ee7ff; --card:#121822; --btn:#1e2633; }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    .wrap{max-width:980px;margin:32px auto;padding:0 16px}
+    .title{font-size:28px;font-weight:700;margin-bottom:8px}
+    .sub{color:var(--muted);margin-bottom:20px}
+    .card{background:var(--card);border:1px solid #1b2430;border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,.25)}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    button{background:var(--btn);color:var(--fg);border:1px solid #2a3342;border-radius:12px;padding:10px 14px;font-weight:600;cursor:pointer}
+    button[disabled]{opacity:.4;cursor:not-allowed}
+    button.primary{background:linear-gradient(180deg,#1b97ff,#1a6dff);border:none}
+    .slider{width:260px}
+    .label{color:var(--muted)}
+    .meter{height:8px;background:#0f1722;border-radius:999px;overflow:hidden}
+    .meter>div{height:100%;background:linear-gradient(90deg,#22d3ee,#3b82f6);width:0%}
+    audio{width:100%}
+    canvas{width:100%;height:64px;background:#0f1722;border-radius:8px}
+    .tag{font-size:12px;background:#0f1722;border:1px solid #243041;border-radius:999px;padding:4px 8px;color:#a9b3bd}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media(max-width:860px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">Mini Pitch Recorder (Web)</div>
+    <div class="sub">Feito para **aula de canto** ✨ — Grave, mude a <b>tonalidade</b> em semitons e mantenha o <b>tempo</b>.
+      <span class="tag">Prévia: rápida (muda tempo)</span>
+      <span class="tag">Renderizar: melhor qualidade (WSOLA)</span>
+    </div><div class="grid">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="row">
+        <button id="btnRec" class="primary">● Gravar</button>
+        <button id="btnStop" disabled>■ Parar</button>
+        <button id="btnPlay" disabled>▶︎ Ouvir Original</button>
+        <button id="btnStopOriginal" disabled>⏹️ Parar Original</button>
+        <button id="btnDownload" disabled>⬇️ Baixar WAV</button>
+      </div>
+      <div class="label" id="lblStatus">Pronto</div>
+    </div>
+    <div style="margin-top:12px" class="row">
+      <input type="file" id="fileIn" accept="audio/*" />
+      <span class="label">ou arraste um arquivo aqui</span>
+    </div>
+    <div style="margin-top:12px">
+      <canvas id="wave"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <label class="label">Semitons: <span id="lblSemitons">0</span></label>
+      <input id="rangeSemitons" type="range" min="-12" max="12" step="1" value="0" class="slider" />
+      <button id="btnSemitoneDown">−1 semitom</button>
+      <button id="btnSemitoneUp">+1 semitom</button>
+      <button id="btnReset">Voltar ao original</button>
+    </div>
+    <div class="row" style="margin-top:8px;gap:16px">
+      <div>
+        <div class="label">Qualidade do processamento</div>
+        <div class="row" style="gap:8px">
+          <label><input type="radio" name="quality" value="fast" checked> Rápido</label>
+          <label><input type="radio" name="quality" value="wsola"> Melhorado (WSOLA)</label>
+        </div>
+      </div>
+      <div>
+        <div class="label">Parâmetros (WSOLA)</div>
+        <div class="row" style="gap:8px">
+          <label class="label">Grão(ms)<input id="grainMs" type="number" value="40" min="20" max="80" style="width:70px;margin-left:6px"></label>
+          <label class="label">Overlap<input id="overlap" type="number" step="0.05" value="0.6" min="0.5" max="0.85" style="width:70px;margin-left:6px"></label>
+          <label class="label">Busca(ms)<input id="searchMs" type="number" value="15" min="5" max="30" style="width:70px;margin-left:6px"></label>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnPreview" disabled>🎧 Pré-visualizar</button>
+      <button id="btnStopPreview" disabled>⏹️ Parar Prévia</button>
+      <button id="btnRender" disabled>⭐ Renderizar (manter tempo)</button>
+      <button id="btnPlayProcessed" disabled>▶︎ Ouvir Processado</button>
+      <button id="btnStopProcessed" disabled>⏹️ Parar Processado</button>
+      <button id="btnDownloadProcessed" disabled>⬇️ Baixar Processado</button>
+    </div>
+    <div style="margin-top:10px" class="meter"><div id="meterBar"></div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div style="font-size:14px" class="label">
+    Dicas:
+    <ul>
+      <li>Semitom = passo mínimo entre notas. ±12 = 1 oitava.</li>
+      <li>Prévia é instantânea (muda tempo). Renderizar usa <b>WSOLA</b> (melhor qualidade) e mantém o tempo.</li>
+      <li>Abra via HTTPS (GitHub Pages funciona) para permitir microfone.</li>
+    </ul>
+  </div>
+</div>
+
+  </div><script>
+(() => {
+  // ===== UI =====
+  const btnRec = document.getElementById('btnRec');
+  const btnStop = document.getElementById('btnStop');
+  const btnPlay = document.getElementById('btnPlay');
+  const btnStopOriginal = document.getElementById('btnStopOriginal');
+  const btnDownload = document.getElementById('btnDownload');
+  const fileIn = document.getElementById('fileIn');
+  const wave = document.getElementById('wave');
+  const lblStatus = document.getElementById('lblStatus');
+  const lblSemitons = document.getElementById('lblSemitons');
+  const rangeSemitons = document.getElementById('rangeSemitons');
+  const btnSemitoneDown = document.getElementById('btnSemitoneDown');
+  const btnSemitoneUp = document.getElementById('btnSemitoneUp');
+  const btnReset = document.getElementById('btnReset');
+  const btnPreview = document.getElementById('btnPreview');
+  const btnStopPreview = document.getElementById('btnStopPreview');
+  const btnRender = document.getElementById('btnRender');
+  const btnPlayProcessed = document.getElementById('btnPlayProcessed');
+  const btnStopProcessed = document.getElementById('btnStopProcessed');
+  const btnDownloadProcessed = document.getElementById('btnDownloadProcessed');
+  const meterBar = document.getElementById('meterBar');
+  const grainMsEl = document.getElementById('grainMs');
+  const overlapEl = document.getElementById('overlap');
+  const searchMsEl = document.getElementById('searchMs');
+
+  function getQuality(){ return document.querySelector('input[name="quality"]:checked').value; }
+
+  // ===== Estado =====
+  let audioCtx = null;               // AudioContext compartilhado
+  let audioBufferOriginal = null;    // AudioBuffer gravado/aberto
+  let processedBuffer = null;        // AudioBuffer processado
+  let originalSource = null, previewSource = null, processedSource = null;
+
+  // Recorder (MediaRecorder simples, compatível com HTTPS/GitHub Pages)
+  let mediaRecorder = null, chunks = [];
+
+  function setStatus(t){ lblStatus.textContent = t; }
+  function enableProcessing(enabled){
+    btnPlay.disabled = !enabled;
+    btnDownload.disabled = !enabled;
+    btnPreview.disabled = !enabled;
+    btnRender.disabled = !enabled;
+  }
+  function stopNode(n){ try{ n && n.stop && n.stop(); }catch(_){} }
+
+  function drawWaveform(buffer){
+    const ctx = wave.getContext('2d');
+    const w = wave.width = wave.clientWidth; const h = wave.height = wave.clientHeight;
+    ctx.clearRect(0,0,w,h); ctx.fillStyle = '#0f1722'; ctx.fillRect(0,0,w,h); ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 1;
+    const ch = buffer.numberOfChannels ? buffer.getChannelData(0) : buffer;
+    const step = Math.max(1, Math.floor(ch.length / w));
+    const amp = h / 2;
+    ctx.beginPath();
+    for (let i=0; i<w; i++){
+      let min=1.0, max=-1.0;
+      for (let j=0; j<step; j++){
+        const v = ch[(i*step)+j] || 0;
+        if (v < min) min = v; if (v > max) max = v;
+      }
+      ctx.moveTo(i, (1+min)*amp);
+      ctx.lineTo(i, (1+max)*amp);
+    }
+    ctx.stroke();
+  }
+
+  function exportWavFromBuffer(buffer){
+    const numOfChan = buffer.numberOfChannels;
+    const length = buffer.length * numOfChan * 2 + 44;
+    const ab = new ArrayBuffer(length);
+    const view = new DataView(ab);
+    const channels = [];
+    let i, sample, offset = 0, pos = 0;
+
+    function setUint16(data){ view.setUint16(pos, data, true); pos += 2; }
+    function setUint32(data){ view.setUint32(pos, data, true); pos += 4; }
+
+    setUint32(0x46464952); // RIFF
+    setUint32(length - 8);
+    setUint32(0x45564157); // WAVE
+
+    setUint32(0x20746d66); // fmt 
+    setUint32(16);
+    setUint16(1);
+    setUint16(numOfChan);
+    setUint32(buffer.sampleRate);
+    setUint32(buffer.sampleRate * 2 * numOfChan);
+    setUint16(numOfChan * 2);
+    setUint16(16);
+
+    setUint32(0x61746164); // data
+    setUint32(length - pos - 4);
+
+    for (i=0; i<numOfChan; i++) channels.push(buffer.getChannelData(i));
+    while (pos < length){
+      for (i=0; i<numOfChan; i++){
+        sample = Math.max(-1, Math.min(1, channels[i][offset] || 0));
+        sample = (sample*32767) | 0;
+        view.setInt16(pos, sample, true); pos += 2;
+      }
+      offset++;
+    }
+    return new Blob([ab], {type:'audio/wav'});
+  }
+
+  // ===== Gravação com MediaRecorder (simples e estável) =====
+  btnRec.addEventListener('click', async () => {
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      chunks = [];
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+      mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
+      mediaRecorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        setStatus('Processando…');
+        const blob = new Blob(chunks, { type: mediaRecorder.mimeType });
+        const ab = await blob.arrayBuffer();
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtx.decodeAudioData(ab.slice(0)).then(buf=>{
+          audioBufferOriginal = buf; drawWaveform(buf); enableProcessing(true);
+          setStatus(`Gravação pronta (${(buf.length/buf.sampleRate).toFixed(2)}s @ ${buf.sampleRate}Hz)`);
+        }).catch(err=>{
+          console.error(err);
+          // Fallback: decodificação manual simples de WebM costuma falhar; sugere abrir arquivo.
+          alert('Falha ao decodificar este formato. Dica: use Chrome/Edge ou carregue um WAV/MP3 pelo seletor de arquivo.');
+        });
+      };
+      mediaRecorder.start();
+      btnRec.disabled = true; btnStop.disabled = false; setStatus('Gravando…');
+    }catch(e){
+      console.error(e); alert('Erro ao acessar microfone: '+e.message);
+    }
+  });
+  btnStop.addEventListener('click', () => {
+    try{ mediaRecorder && mediaRecorder.stop(); mediaRecorder && mediaRecorder.stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+    btnRec.disabled = false; btnStop.disabled = true; setStatus('Parado');
+  });
+
+  // Ouvir Original
+  btnPlay.addEventListener('click', () => {
+    if (!audioBufferOriginal) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    stopNode(originalSource);
+    originalSource = audioCtx.createBufferSource();
+    originalSource.buffer = audioBufferOriginal;
+    originalSource.connect(audioCtx.destination);
+    originalSource.start();
+    btnStopOriginal.disabled = false;
+  });
+  btnStopOriginal.addEventListener('click', () => { stopNode(originalSource); btnStopOriginal.disabled = true; setStatus('Original parado'); });
+
+  // Baixar WAV
+  btnDownload.addEventListener('click', () => {
+    if (!audioBufferOriginal) return;
+    const blob = exportWavFromBuffer(audioBufferOriginal);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'original.wav'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+  });
+
+  // Carregar arquivo
+  async function decodeToBuffer(arrayBuffer){
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+  }
+  fileIn.addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    setStatus('Carregando arquivo…');
+    try{
+      const ab = await file.arrayBuffer();
+      audioBufferOriginal = await decodeToBuffer(ab);
+      drawWaveform(audioBufferOriginal);
+      setStatus('Arquivo carregado'); enableProcessing(true);
+    }catch(err){ console.error(err); alert('Falha ao abrir áudio: '+err.message); }
+  });
+  document.addEventListener('dragover', e=>{ e.preventDefault(); });
+  document.addEventListener('drop', async e=>{
+    e.preventDefault(); if (!e.dataTransfer.files.length) return;
+    try{
+      const ab = await e.dataTransfer.files[0].arrayBuffer();
+      audioBufferOriginal = await decodeToBuffer(ab);
+      drawWaveform(audioBufferOriginal);
+      setStatus('Arquivo carregado'); enableProcessing(true);
+    }catch(err){ console.error(err); alert('Falha ao abrir áudio: '+err.message); }
+  });
+
+  // Semitons
+  function setSemitons(v){ rangeSemitons.value = v; lblSemitons.textContent = v; }
+  rangeSemitons.addEventListener('input', () => setSemitons(rangeSemitons.value));
+  btnSemitoneDown.addEventListener('click', ()=> setSemitons(Math.max(-12, parseInt(rangeSemitons.value)-1)) );
+  btnSemitoneUp.addEventListener('click',   ()=> setSemitons(Math.min( 12, parseInt(rangeSemitons.value)+1)) );
+  btnReset.addEventListener('click', ()=> setSemitons(0));
+
+  // Pré-visualização (rápida: muda tempo)
+  btnPreview.addEventListener('click', () => {
+    if (!audioBufferOriginal) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    stopNode(previewSource);
+    const semitons = parseInt(rangeSemitons.value, 10);
+    const rate = Math.pow(2, semitons/12);
+    previewSource = audioCtx.createBufferSource();
+    previewSource.buffer = audioBufferOriginal; previewSource.playbackRate.value = rate;
+    previewSource.connect(audioCtx.destination); previewSource.start();
+    setStatus(`Prévia: ${semitons} st`); btnStopPreview.disabled = false;
+  });
+  btnStopPreview.addEventListener('click', () => { stopNode(previewSource); btnStopPreview.disabled = true; setStatus('Prévia parada'); });
+
+  // ---------------------------
+  // Qualidade Melhorada (WSOLA)
+  // ---------------------------
+  function hann(n, N){ return 0.5*(1 - Math.cos(2*Math.PI*n/(N-1))); }
+
+  // cross-correlation curta para alinhar janelas
+  function bestOverlapOffset(a, b, radius){
+    // procura deslocamento em [-radius, radius] maximizando soma(a[i]*b[i+off])
+    let bestOff = 0, bestScore = -1e15;
+    for (let off = -radius; off <= radius; off++){
+      let s = 0;
+      for (let i=0; i<a.length; i++){
+        const j = i + off; if (j<0 || j>=b.length) continue;
+        s += a[i]*b[j];
+      }
+      if (s > bestScore){ bestScore = s; bestOff = off; }
+    }
+    return bestOff;
+  }
+
+  // WSOLA time-scale (preserva pitch)
+  function timeScaleWSOLA(x, sr, factor, grainMs, overlap, searchMs){
+    // factor>1 alonga; factor<1 encurta; pitch preservado
+    const N = x.length;
+    const grain = Math.max(256, Math.floor(sr*grainMs/1000));
+    const hopOut = Math.max(1, Math.floor(grain*(1-overlap)));
+    const hopIn  = Math.max(1, Math.floor(hopOut/factor));
+    const search = Math.max(1, Math.floor(sr*searchMs/1000));
+    const win = new Float32Array(grain); for (let i=0;i<grain;i++) win[i] = hann(i,grain);
+
+    const outLen = Math.max(hopOut, Math.floor(N*factor)+grain);
+    const y = new Float32Array(outLen);
+
+    // primeira janela
+    y.set(x.subarray(0, grain).map((v,i)=>v*win[i]), 0);
+    let inPos = hopIn, outPos = hopOut;
+
+    while (outPos + grain < outLen && inPos + grain < N){
+      const prev = y.subarray(outPos - hopOut, outPos - hopOut + grain);
+      const cand = x.subarray(inPos - search, Math.min(N, inPos + search + grain));
+      // recorta janela de comparação do input no tamanho do grão
+      const center = Math.min(Math.max(search, grain), cand.length - search);
+      const a = prev; // referência de saída
+      const bStart = Math.max(0, center - search);
+      const b = cand.subarray(bStart, Math.min(cand.length, bStart + grain));
+      const off = bestOverlapOffset(a, b, Math.min(search, b.length-1));
+      const start = inPos - search + bStart + off;
+      const frame = x.subarray(start, start + grain);
+      for (let i=0;i<frame.length && (outPos+i)<y.length;i++){
+        y[outPos+i] += (frame[i]||0)*win[i];
+      }
+      inPos += hopIn; outPos += hopOut;
+    }
+    // normalização simples
+    let m = 0; for (let i=0;i<y.length;i++) m = Math.max(m, Math.abs(y[i]));
+    if (m>1e-3){ const g = 1/(m*1.05); for (let i=0;i<y.length;i++) y[i]*=g; }
+    return y;
+  }
+
+  function resampleToLength(arr, targetLen){
+    const out = new Float32Array(targetLen);
+    const srcLen = arr.length;
+    for (let i=0;i<targetLen;i++){
+      const t = i*(srcLen-1)/(targetLen-1);
+      const i0 = Math.floor(t), i1 = Math.min(srcLen-1, i0+1);
+      const a = arr[i0], b = arr[i1];
+      const frac = t - i0;
+      out[i] = a + (b-a)*frac;
+    }
+    return out;
+  }
+
+  btnRender.addEventListener('click', async () => {
+    if (!audioBufferOriginal) return;
+    setStatus('Renderizando…'); btnRender.disabled = true; meterBar.style.width = '0%';
+
+    const numCh = audioBufferOriginal.numberOfChannels;
+    const sr = audioBufferOriginal.sampleRate;
+    const semitons = parseInt(rangeSemitons.value, 10);
+    const r = Math.pow(2, semitons/12); // razão de pitch desejada
+
+    const quality = getQuality();
+    const grainMs = parseInt(grainMsEl.value, 10);
+    const overlap = Math.max(0.5, Math.min(0.85, parseFloat(overlapEl.value)));
+    const searchMs = parseInt(searchMsEl.value, 10);
+
+    // Estratégia: 1) TSM (WSOLA se "wsola", senão granular simples) com fator r
+    //             2) Reamostrar para voltar à duração original -> altera o pitch
+
+    const processed = [];
+    for (let ch=0; ch<numCh; ch++){
+      const x = audioBufferOriginal.getChannelData(ch);
+      let stretched;
+      if (quality === 'wsola'){
+        stretched = timeScaleWSOLA(x, sr, r, grainMs, overlap, searchMs);
+      } else {
+        // granular simples (rápido)
+        const grain = Math.max(256, Math.floor(sr*40/1000));
+        const hopOut = Math.floor(grain*(1-0.6));
+        const hopIn  = Math.max(1, Math.floor(hopOut/r));
+        const win = new Float32Array(grain); for (let i=0;i<grain;i++) win[i] = hann(i,grain);
+        const outLen = Math.max(hopOut, Math.floor(x.length*r)+grain);
+        const y = new Float32Array(outLen);
+        y.set(x.subarray(0, grain).map((v,i)=>v*win[i]), 0);
+        let inPos = hopIn, outPos = hopOut;
+        while (outPos + grain < outLen && inPos + grain < x.length){
+          for (let n=0;n<grain;n++) y[outPos+n] += (x[inPos+n]||0)*win[n];
+          inPos += hopIn; outPos += hopOut;
+        }
+        stretched = y;
+      }
+      // reamostra para o comprimento original
+      const y2 = resampleToLength(stretched, x.length);
+      processed.push(y2);
+      meterBar.style.width = Math.min(100, Math.round(((ch+1)/numCh)*100)) + '%';
+    }
+
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    processedBuffer = audioCtx.createBuffer(numCh, audioBufferOriginal.length, sr);
+    processed.forEach((arr, idx) => processedBuffer.getChannelData(idx).set(arr));
+
+    meterBar.style.width = '100%'; setStatus('Renderização concluída');
+    btnPlayProcessed.disabled = false; btnStopProcessed.disabled = false; btnDownloadProcessed.disabled = false; btnRender.disabled = false;
+    drawWaveform(processedBuffer);
+  });
+
+  // Ouvir processado
+  btnPlayProcessed.addEventListener('click', () => {
+    if (!processedBuffer) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    stopNode(processedSource);
+    processedSource = audioCtx.createBufferSource();
+    processedSource.buffer = processedBuffer; processedSource.connect(audioCtx.destination); processedSource.start();
+    btnStopProcessed.disabled = false;
+  });
+  btnStopProcessed.addEventListener('click', () => { stopNode(processedSource); btnStopProcessed.disabled = true; setStatus('Processado parado'); });
+})();
+</script></body>
+</html>
